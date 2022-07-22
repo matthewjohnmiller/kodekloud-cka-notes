@@ -1,0 +1,169 @@
+# Section 2: Core Concepts
+
+- Nodes
+    - Worker nodes - host application as containers
+    - Master node - controls this through the Control Plane components
+    - Every ship (node) has a captain - that is the kubelet - this is an agent that runs on each node in a cluster - listens to instructions from the api server
+- etcd Cluster - highly-available, key-value store
+- kube-schedule - identifies the right nodes to place the containers on
+- Controllers
+    - Node-Controller - takes care of nodes - onboarding nodes, taking care when nodes are destoryed
+    - Replication-Controller - makes sure the right number of replicas are running
+- kube-apiserver - top-level controller
+- Applications are in the form of containers
+    - Software needs to run the containers - so we need a container runtime engine
+    - Docker is an example; but, guess what, containerd is the new one
+- kube-proxy - communication between worker nodes - makes sure containers running on different worker nodes can communicate
+- etcd
+    - What is etcd? Distributed, reliable key-value store
+        - What is a key-value store? Used to store and retrieve small chunks of data
+    - etcd has its own command line interface: `etcdctl`
+    - What is etcd's role in k8s?
+        - stores info regarding cluster - nodes, pods, config, secrets, etc
+        - Every time you make a change, it's updated in the etcd server
+        - change is not complete until it's updated ehre
+        - practice test is in the kubeadm tool; alternative is to set up the cluster from scratch
+            - if you set it up yourself, you have to download etcd binaries
+        - high availability environment will have multiple nodes in a cluster; therefore will have multiple instances of etcd service
+            - they need to be able to talk to one another
+- kube-apiserver
+    - kubectl utility reaches to kube-apiserver
+    - kube-apiserver communicates with the etcd cluster
+    - this is the ONLY component that interacts directly with etcd
+    - kube-apiserver has a binary that you would download if you were booting up k8s the hard way
+- kube controller-manager
+    - manages the controllers in k8s
+    - controller is a process that continuously monitors the objects in the cluster
+        - node-controller monitors the status of nodes
+            - takes status every 5 seconds
+        - replication-controller monitors the status of replicasets - making sure the right number of pods are available at all times
+        - pretty much every object has a controller
+        - these are the "brains" behind most processes in k8s
+    - all of these controllers are available in the kube-controller-manager
+        - THW - this can be downloaded as a binary and shown as a service
+        - kubeadm - kube-controller-manager is a pod
+- kube-scheduler
+    - only responsible for **deciding** which pod goes on which node
+        - it does not **put** the pod on the node - the kubelet does that
+    - scheduler makes sure the right pod gets on the right node
+        - node should have sufficient capacity for a container
+        - pods might have certain resource requirements
+    - kube-scheduler tries to find the best node for a pod
+    - how does it do this?
+        - filters nodes -e.g. pod requests 10CPU, filter out anything with less
+        - rank nodes - uses a priority score to assign a priority of a node from 0-10
+    - installation - again, binary can be run as a service
+- kubelet
+    - kubelet is like the "captain of the ship"
+        - sole point of contact with the master node
+    - kubelet registers the node with a k8s cluster
+    - kubelet then monitors the state of the pod and reports to the kube-apiserver
+    - **kubeadm does not automatically deploy kubelets - kubelets must always be manually installed, this is unlike the previous objects**
+- kube-proxy
+    - in a k8s cluster, every pod can reach every other pod
+    - this is achieved through a pod network - virtual network spanning across all pods
+    - IP addresses might not be static - therefore, we use services
+        - the service cannot join the pod network - the service is not a container, like pods, so it has no interfaces - it is a virtual component that only lives in k8s memory
+        - kube-proxy is a procss that runs on each node in the k8s cluster - its job is to look for new services, and creates the right rules on each node to forward information
+        - it does this using **iptables** - it matches the ip of the service to the ip of the actual pod
+    - installation
+        - installed via a binary
+        - kubeadm deploys it as a pod on each node - a daemonset
+- pods
+    - single instance of app - smallest object that you can create in k8s
+    - new pods are created in a node to scale an application; if app usage scales further, you can add a new node
+        - you don't add additional containers to an existing pod to scale
+    - a single pod can have multiple containers, but they're not typically the same container - you'd instead have a helper container which lives alongside the application container
+- replication-controller/replicaset
+    - replication-controller can even bring up just a single new pod in place of a single old pod
+    - also helps with load balancing and scaling - it can span across multiple nodes
+    - replication controller is the OLDER TECHNOLOGY replaced by REPLICA SET
+    - replication controllers have yaml files - apiVersion, kind, metadata, spec
+        - version v1 (apps/v1 in a replicaset)
+        - kind ReplicationController (ReplicaSet)
+        - spec defines what's inside the rc
+            - rc has a template section of a template pod
+            - we define the pod template with the same details as a pod manifest, except the apiVersion and kind
+            - aside from the template, we have replicas - how many we need
+    - replicaset requires a **selector** to determine which pods should fall under it - big difference!
+        - replicasets can also managed pods not created by the replicaset itself
+        - it monitors the pods, and if any of them fail, it deploys new ones
+    - what's the deal with labels and selectors?
+        - this is how the replicaset knows which pods to monitor
+        - the labels are in the pod definition, and the selector has the "matchLabels" to say which labels to find
+    - how do we scale the replicaset?
+        - you can just update the number of replicas in the manifest to 6 > from there you can use `kubectl replace -f [youryamlfile.yaml]`
+        - you can also run the `kubectl scale --replicas=# -f [youryamlfile.yaml]`
+- deployments
+    - contains a replicaset, and much more
+    - kind becomes Deployment; otherwise, the yaml manifest is pretty much the same as a replicaset
+- namespaces
+    - everything we've been doing, we've done in the default namespace - created automatically when the cluster is first set up
+    - kube-system is also created automatically - this is for internal kubernetes to avoid the user messing with them
+    - kube-public, also created, for resources available to all users
+    - namespaces provide isolation in larger environments
+        - e.g. you can have a dev and production namespace within the same cluster (I wonder how common this is) 
+    - kubectl get pods --namespace=mynamespace
+    - you can put the namespace directly in the manifest
+    - version: v1, kind: Namespace
+    - you can also simply `kubectl create namespace mynamespace`
+    - here's a good one: if you want to set your current **context** to be a specific namespace, you would run this command: `kubectl config set-context $(kubectl config current-context) --namespace=mynamespace`
+        - now you would be able to run `kubectl get pods` or whatever, and it would default to your selected namespace
+    - namespaces can also have resource limits defined in the manifest
+- services
+    - If an external user wants to access the pod, they can't do it by pinging the pod's IP address because it's on an external network (the node, however, would be on the same network)
+    - A service sits maps requests from our laptop, through the node, to the pod running our container
+    - Service should listen to a port on the NODE and forwards it to port on the POD running the app - this is a NodePort service
+    - Kinds of services
+        - NodePort
+        - ClusterIP - creates a virtual IP inside the cluster
+        - LoadBalancer - provisions a load balancer for our application - helps distribute load between different web servers in the front-end tier
+    - NodePort
+        - Three ports involved
+            - Port on the pod  - this is the targetPort, aka where the service forwards requests
+            - Port on the service itself - this is the Port
+                - Service is like a virtual server in the node
+                - inside the cluster, it has its own IP address - this is the Cluster IP of the service
+            - Port on the node which we use to access the web server externally - NodePort (valid range for NodePorts: 30000-32767)
+            - the only mandatory port is port
+                - if you don't provide targetport, assumption is the same as port
+                - if you don't provide a nodeport, a valid port in the above range is automatically allocated
+        - yaml: apiVersion: v1, kind: Service
+            - we add the selector to add labels
+        - so now with that same yaml file, once run, you should be able to curl and show some html
+        - what about in a production environment? you have multiple similar pods running for HA
+            - they'll all have the same labels -those labels are used as a selector in the service
+            - so the service will look for a matching pod with that label - all of the matching pods will be endpoints
+            - no additional config is required for this - the service uses a random algorithm to distribute load
+            - what about with separate nodes? k8s automatically creates a service that spans across all the nodes in a cluster - it'll plug in the same nodeport and make it available on all relevant nodes in the cluster
+    - ClusterIP
+        - IPs of pods are not static, because pods can go down all the time - can't rely on these for internal comms
+        - services can let us access pods when there are multiple pods for the same workload (e.g. backend)
+        - this type of service is a ClusterIP
+        - yaml
+            - ClusterIP is the default type
+            - it's basically the same yaml structure as a NodePort service
+            - we use the selector again to figure out which pods are relevant
+    - LoadBalancer
+        - front-end - pods are hosted on nodes in the cluster - and to make these available to external users, we create a service of type NodePort
+        - this service helps receive traffic and route it to the ports on the respective pods
+        - but what about end users? you could use any of the IPs of the nodes and the high port - but that's a lot of combinations
+        - so what do you do? end users need a single URL
+        - you could create a new VM and configure a load balancer on it to route traffic to the underlying nodes - but that's a pain
+        - on a cloud platform, we can integrate with native load balancers of cloud providers - this is done with service type LoadBalancer
+            - this ONLY WORKS WITH SUPPORTED CLOUD PLATFORMS
+                - if you set this in an unsupported environment, it would have the same effect as setting it to nodeport
+        - **Learn more about Endpoint objects
+- Imperative vs. Declarative
+    - imperative commands (e.g. `kubectl run` or `kubectl create`) don't leave a history for someone else to go back and look at how the object was created
+    - object definition/configuration/manifest files can help us keep better track of these things
+    - `kubectl edit` shows a yaml file for the live object and is not the same as the local manifest
+    - `kubectl replace` is typically a better approach if you're using local yaml files
+    - `kubectl apply` IS THE DECLARATIVE APPROACH
+        - it is INTELLIGENT ENOUGH to know whether or not an object already exists and should be replaced, or whether it should create a new one
+            - you can also do it with an entire DIRECTORY full of objects
+        - when you create it, the configuration is created internally in K8s - and also, there is a last applied configuration (JSON format) which helps identify fields which have been added or removed
+            - this is stored ON THE LIVE OBJECT CONFIGURATION ITSELF
+- Other nodes
+    - `kubectl set image` lets me set the image of a pod, replicaset, or deployment quickly
+        - problem is, if i do it for a replicaset or a deployment, i have to then delete the pods and restart
